@@ -6,74 +6,96 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
-
-
-	_ "github.com/lib/pq"
-
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	db               database.Client
 	jwtSecret        string
 	platform         string
+	s3Client         *s3.Client
 	filepathRoot     string
 	assetsRoot       string
 	s3Bucket         string
 	s3Region         string
 	s3CfDistribution string
 	port             string
-	s3Client		*s3.Client
-}
-
-func getEnvOrFatal(key string) string {
-	val := os.Getenv(key)
-	if val == "" {
-		log.Fatalf("%s environment variable is not set", key)
-	}
-	return val
 }
 
 func main() {
-	pathToDB := getEnvOrFatal("DB_PATH")
+	godotenv.Load(".env")
 
-	jwtSecret := getEnvOrFatal("JWT_SECRET")
-	platform := getEnvOrFatal("PLATFORM")
-	filepathRoot := getEnvOrFatal("FILEPATH_ROOT")
-	assetsRoot := getEnvOrFatal("ASSETS_ROOT")
-	s3Bucket := getEnvOrFatal("S3_BUCKET")
-	s3CfDistribution := getEnvOrFatal("S3_CF_DISTRO")
-	port := os.Getenv("PORT")
-	s3Region := getEnvOrFatal("S3_REGION")
-	if port == "" {
-		port = "8080" // default fallback
+	pathToDB := os.Getenv("DB_PATH")
+	if pathToDB == "" {
+		log.Fatal("DB_PATH must be set")
 	}
-	
-	//init aws sdk
-	awsCfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(s3Region))
-	if err != nil {
-		log.Fatal("Unable to load AWS SDK config:", err)
-	}
-	//create s3 client
-	s3Client := s3.NewFromConfig(awsCfg)
-	//init database client
+
 	db, err := database.NewClient(pathToDB)
 	if err != nil {
 		log.Fatalf("Couldn't connect to database: %v", err)
-	}	
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is not set")
+	}
+
+	platform := os.Getenv("PLATFORM")
+	if platform == "" {
+		log.Fatal("PLATFORM environment variable is not set")
+	}
+
+	filepathRoot := os.Getenv("FILEPATH_ROOT")
+	if filepathRoot == "" {
+		log.Fatal("FILEPATH_ROOT environment variable is not set")
+	}
+
+	assetsRoot := os.Getenv("ASSETS_ROOT")
+	if assetsRoot == "" {
+		log.Fatal("ASSETS_ROOT environment variable is not set")
+	}
+
+	s3Bucket := os.Getenv("S3_BUCKET")
+	if s3Bucket == "" {
+		log.Fatal("S3_BUCKET environment variable is not set")
+	}
+
+	s3Region := os.Getenv("S3_REGION")
+	if s3Region == "" {
+		log.Fatal("S3_REGION environment variable is not set")
+	}
+
+	s3CfDistribution := os.Getenv("S3_CF_DISTRO")
+	if s3CfDistribution == "" {
+		log.Fatal("S3_CF_DISTRO environment variable is not set")
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatal("PORT environment variable is not set")
+	}
+
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(s3Region))
+	if err != nil {
+		log.Fatal(err)
+	}
+	client := s3.NewFromConfig(awsCfg)
+
 	cfg := apiConfig{
 		db:               db,
 		jwtSecret:        jwtSecret,
 		platform:         platform,
+		s3Client:         client,
 		filepathRoot:     filepathRoot,
 		assetsRoot:       assetsRoot,
 		s3Bucket:         s3Bucket,
 		s3Region:         s3Region,
 		s3CfDistribution: s3CfDistribution,
 		port:             port,
-		s3Client: 	   	s3Client,
 	}
 
 	err = cfg.ensureAssetsDir()
