@@ -1,15 +1,11 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
-
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
@@ -51,54 +47,19 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	conType := handler.Header.Get("Content-Type")
-	mediaType, _, err := mime.ParseMediaType(conType)
+	// Validate the file type
+	mediaType, _, err := mime.ParseMediaType(handler.Header.Get("Content-Type"))
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid Content-Type header", err)
 		return
 	}	
-	if mediaType == "" {
-		respondWithError(w, http.StatusBadRequest, "Content-Type header is missing", nil)
-		return
-	}
 	if mediaType != "image/jpeg" && mediaType != "image/png"  {
 		respondWithError(w, http.StatusUnsupportedMediaType, "Unsupported media type", nil)
 		return
 	}
-
-	//validate
-	video, err := cfg.db.GetVideo(videoID)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't get video metadata", err)
-		return
-	}
-	if video.UserID != userID {
-		respondWithError(w, http.StatusUnauthorized, "You are not allowed to upload a thumbnail for this video", nil)
-		return
-	}
-	//generate random filename
-	var randomBytes [32]byte
-	if _, err := rand.Read(randomBytes[:]); err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't generate random bytes", err)
-		return
-	}
-	randStr := base64.RawURLEncoding.EncodeToString(randomBytes[:])
-
-	//Determine file extension
-	var extension string
-	switch mediaType {
-	case "image/jpeg":
-		extension = ".jpg"
-	case "image/png":
-		extension = ".png"
-	default:
-		respondWithError(w, http.StatusUnsupportedMediaType, "Unsupported media type", nil)
-		return
-	}		
-	
-	filename := randStr + extension
-	savePath := filepath.Join(cfg.assetsRoot, filename)
-
+	//create asset path
+	fPath := getAssetPath(mediaType)
+	savePath := cfg.getAssetDiskPath(fPath)
 	//save file to disk
 	out, err := os.Create(savePath)
 	if err != nil {
@@ -111,9 +72,19 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Couldn't save file", err)
 		return
 	}	
+
+	video, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Couldn't get video", err)
+		return			
+	}
+	if video.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "You are not allowed to upload a thumbnail for this video", nil)
+		return
+	}
 	// update DB with new thumbnail url
-	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s", cfg.port, filename)
-	video.ThumbnailURL = &dataURL
+	url := cfg.getAssetURL(fPath)
+	video.ThumbnailURL = &url
 
 	if err = cfg.db.UpdateVideo(video); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Could not update video", err)
